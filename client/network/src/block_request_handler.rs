@@ -47,7 +47,7 @@ use std::{
 const LOG_TARGET: &str = "sync";
 const MAX_BLOCKS_IN_RESPONSE: usize = 128;
 const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
-const MAX_NUMBER_OF_SAME_REQUESTS_PER_PEER: usize = 2;
+const MAX_NUMBER_OF_SAME_REQUESTS_PER_PEER: usize = 15;
 
 mod rep {
 	use super::ReputationChange as Rep;
@@ -193,16 +193,16 @@ impl<B: BlockT> BlockRequestHandler<B> {
 			support_multiple_justifications,
 		};
 
-		let mut reputation_change = None;
+		let reputation_change = None;
 
 		match self.seen_requests.get_mut(&key) {
 			Some(SeenRequestsValue::First) => {},
 			Some(SeenRequestsValue::Fulfilled(ref mut requests)) => {
 				*requests = requests.saturating_add(1);
 
-				if *requests > MAX_NUMBER_OF_SAME_REQUESTS_PER_PEER {
-					reputation_change = Some(rep::SAME_REQUEST);
-				}
+				// if *requests > MAX_NUMBER_OF_SAME_REQUESTS_PER_PEER {
+				// 	reputation_change = Some(rep::SAME_REQUEST);
+				// }
 			},
 			None => {
 				self.seen_requests.put(key.clone(), SeenRequestsValue::First);

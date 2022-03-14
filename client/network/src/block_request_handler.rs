@@ -198,6 +198,13 @@ impl<B: BlockT> BlockRequestHandler<B> {
 		match self.seen_requests.get_mut(&key) {
 			Some(SeenRequestsValue::First) => {},
 			Some(SeenRequestsValue::Fulfilled(ref mut requests)) => {
+				debug!(
+					target: LOG_TARGET,
+					"Handling block request from {}: Starting at `{:?}`; Fulfilled {}",
+					peer,
+					from_block_id,
+					*requests
+				);
 				*requests = requests.saturating_add(1);
 
 				if *requests > MAX_NUMBER_OF_SAME_REQUESTS_PER_PEER {

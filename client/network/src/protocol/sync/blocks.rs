@@ -87,6 +87,8 @@ impl<B: BlockT> BlockCollection<B> {
 			_ => (),
 		}
 
+		trace!(target: "sync", "Inserting {} blocks from {}", blocks.len(), start);
+
 		self.blocks.insert(
 			start,
 			BlockRangeState::Complete(
@@ -114,10 +116,11 @@ impl<B: BlockT> BlockCollection<B> {
 		let first_different = common + <NumberFor<B>>::one();
 		let count = (count as u32).into();
 		let (mut range, downloading) = {
-			let mut downloading_iter = self.blocks.iter().peekable();
+			let mut downloading_iter = self.blocks.iter();
 			let mut prev: Option<(&NumberFor<B>, &BlockRangeState<B>)> = None;
 			loop {
 				let next = downloading_iter.next();
+				trace!(target: "sync", "Needed blocks: prev = {:?} | next = {:?}", prev, next);
 				break match (prev, next) {
 					(Some((start, &BlockRangeState::Downloading { ref len, downloading })), _)
 						if downloading < max_parallel =>

@@ -2251,6 +2251,7 @@ pub(crate) struct Metrics {
 /// Request the ancestry for a block. Sends a request for header and justification for the given
 /// block number. Used during ancestry search.
 fn ancestry_request<B: BlockT>(block: NumberFor<B>) -> BlockRequest<B> {
+	trace!(target: "sync", "Preparing ancestry request for block {}", block);
 	message::generic::BlockRequest {
 		id: 0,
 		fields: BlockAttributes::HEADER | BlockAttributes::JUSTIFICATION,

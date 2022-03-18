@@ -220,7 +220,13 @@ impl<B: BlockT> BlockCollection<B> {
 #[cfg(test)]
 mod test {
 	use super::{BlockCollection, BlockData, BlockRangeState};
-	use crate::{protocol::message, PeerId};
+	use crate::{
+		protocol::{
+			message,
+			sync::{MAX_BLOCKS_TO_REQUEST, MAX_DOWNLOAD_AHEAD},
+		},
+		PeerId,
+	};
 	use sp_core::H256;
 	use sp_runtime::testing::{Block as RawBlock, ExtrinsicWrapper};
 
@@ -243,6 +249,73 @@ mod test {
 				justifications: None,
 			})
 			.collect()
+	}
+
+	#[test]
+	fn replicate() {
+		let mut bc = BlockCollection::new();
+		assert!(is_empty(&bc));
+		let peer = PeerId::random();
+
+		let blocks = generate_blocks(MAX_BLOCKS_TO_REQUEST);
+
+		assert_eq!(
+			bc.needed_blocks(
+				peer.clone(),
+				MAX_BLOCKS_TO_REQUEST,
+				3827,
+				2851,
+				0,
+				MAX_DOWNLOAD_AHEAD
+			),
+			Some(2852..2916)
+		);
+		bc.clear_peer_download(&peer);
+		bc.insert(2852, blocks.clone(), peer.clone());
+
+		let drained = bc.drain(3103);
+		assert_eq!(
+			drained,
+			blocks
+				.iter()
+				.map(|b| BlockData { block: b.clone(), origin: Some(peer.clone()) })
+				.collect::<Vec<_>>()
+		);
+
+		assert_eq!(
+			bc.needed_blocks(
+				peer.clone(),
+				MAX_BLOCKS_TO_REQUEST,
+				3827,
+				2851,
+				0,
+				MAX_DOWNLOAD_AHEAD
+			),
+			Some(2916..2916 + MAX_BLOCKS_TO_REQUEST as u64)
+		);
+	}
+	#[test]
+	fn replicate_min() {
+		let mut bc = BlockCollection::new();
+		assert!(is_empty(&bc));
+		let peer = PeerId::random();
+
+		let blocks = generate_blocks(10);
+
+		assert_eq!(bc.needed_blocks(peer.clone(), 5, 50, 39, 0, MAX_DOWNLOAD_AHEAD), Some(40..45));
+		bc.clear_peer_download(&peer);
+		bc.insert(40, blocks[..5].to_vec(), peer.clone());
+
+		let drained = bc.drain(39);
+		assert_eq!(
+			drained,
+			blocks[..5]
+				.iter()
+				.map(|b| BlockData { block: b.clone(), origin: Some(peer.clone()) })
+				.collect::<Vec<_>>()
+		);
+
+		assert_eq!(bc.needed_blocks(peer.clone(), 5, 50, 39, 0, MAX_DOWNLOAD_AHEAD), Some(45..50));
 	}
 
 	#[test]

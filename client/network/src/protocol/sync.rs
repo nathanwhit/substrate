@@ -1233,6 +1233,7 @@ impl<B: BlockT> ChainSync<B> {
 								start: *start,
 								state: next_state,
 							};
+							trace!(target: "sync", "Ancestry search, state = {:?}; for peer {:?}", peer.state, who);
 							return Ok(OnBlockData::Request(*who, ancestry_request::<B>(next_num)))
 						} else {
 							// Ancestry search is complete. Check if peer is on a stale fork unknown

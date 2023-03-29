@@ -69,7 +69,9 @@ pub(super) fn check_header<B: BlockT + Sized>(
 	let VerificationParams { mut header, pre_digest, slot_now, epoch, initial_babe_block } = params;
 
 	let authorities = &epoch.authorities;
-	let pre_digest = pre_digest.map(Ok).unwrap_or_else(|| find_pre_digest::<B>(&header, &initial_babe_block))?;
+	let pre_digest = pre_digest
+		.map(Ok)
+		.unwrap_or_else(|| find_pre_digest::<B>(&header, &initial_babe_block))?;
 
 	trace!(target: LOG_TARGET, "Checking header");
 	let seal = header

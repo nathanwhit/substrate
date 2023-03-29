@@ -428,73 +428,7 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T: Config> GenesisBuild<T> for GenesisConfig<T> {
 		fn build(&self) {
-			if T::SessionHandler::KEY_TYPE_IDS.len() != T::Keys::key_ids().len() {
-				panic!("Number of keys in session handler and session keys does not match");
-			}
-
-			T::SessionHandler::KEY_TYPE_IDS
-				.iter()
-				.zip(T::Keys::key_ids())
-				.enumerate()
-				.for_each(|(i, (sk, kk))| {
-					if sk != kk {
-						panic!(
-							"Session handler and session key expect different key type at index: {}",
-							i,
-						);
-					}
-				});
-
-			for (account, val, keys) in self.keys.iter().cloned() {
-				<Pallet<T>>::inner_set_keys(&val, keys)
-					.expect("genesis config must not contain duplicates; qed");
-				if frame_system::Pallet::<T>::inc_consumers_without_limit(&account).is_err() {
-					// This will leak a provider reference, however it only happens once (at
-					// genesis) so it's really not a big deal and we assume that the user wants to
-					// do this since it's the only way a non-endowed account can contain a session
-					// key.
-					frame_system::Pallet::<T>::inc_providers(&account);
-				}
-			}
-
-			let initial_validators_0 =
-				T::SessionManager::new_session_genesis(0).unwrap_or_else(|| {
-					frame_support::print(
-						"No initial validator provided by `SessionManager`, use \
-						session config keys to generate initial validator set.",
-					);
-					self.keys.iter().map(|x| x.1.clone()).collect()
-				});
-			assert!(
-				!initial_validators_0.is_empty(),
-				"Empty validator set for session 0 in genesis block!"
-			);
-
-			let initial_validators_1 = T::SessionManager::new_session_genesis(1)
-				.unwrap_or_else(|| initial_validators_0.clone());
-			assert!(
-				!initial_validators_1.is_empty(),
-				"Empty validator set for session 1 in genesis block!"
-			);
-
-			let queued_keys: Vec<_> = initial_validators_1
-				.iter()
-				.cloned()
-				.map(|v| {
-					(
-						v.clone(),
-						Pallet::<T>::load_keys(&v).expect("Validator in session 1 missing keys!"),
-					)
-				})
-				.collect();
-
-			// Tell everyone about the genesis session keys
-			T::SessionHandler::on_genesis_session::<T::Keys>(&queued_keys);
-
-			Validators::<T>::put(initial_validators_0);
-			<QueuedKeys<T>>::put(queued_keys);
-
-			T::SessionManager::start_session(0);
+			Pallet::<T>::genesis_init(&self.keys);
 		}
 	}
 
@@ -885,6 +819,75 @@ impl<T: Config> Pallet<T> {
 
 	fn clear_key_owner(id: KeyTypeId, key_data: &[u8]) {
 		<KeyOwner<T>>::remove((id, key_data));
+	}
+
+	pub fn genesis_init(keys: &[(T::AccountId, T::ValidatorId, T::Keys)]) {
+		if T::SessionHandler::KEY_TYPE_IDS.len() != T::Keys::key_ids().len() {
+			panic!("Number of keys in session handler and session keys does not match");
+		}
+
+		T::SessionHandler::KEY_TYPE_IDS
+			.iter()
+			.zip(T::Keys::key_ids())
+			.enumerate()
+			.for_each(|(i, (sk, kk))| {
+				if sk != kk {
+					panic!(
+						"Session handler and session key expect different key type at index: {}",
+						i,
+					);
+				}
+			});
+
+		for (account, val, keys) in keys.iter().cloned() {
+			<Pallet<T>>::inner_set_keys(&val, keys)
+				.expect("genesis config must not contain duplicates; qed");
+			if frame_system::Pallet::<T>::inc_consumers_without_limit(&account).is_err() {
+				// This will leak a provider reference, however it only happens once (at
+				// genesis) so it's really not a big deal and we assume that the user wants to
+				// do this since it's the only way a non-endowed account can contain a session
+				// key.
+				frame_system::Pallet::<T>::inc_providers(&account);
+			}
+		}
+
+		let initial_validators_0 = T::SessionManager::new_session_genesis(0).unwrap_or_else(|| {
+			frame_support::print(
+				"No initial validator provided by `SessionManager`, use \
+					session config keys to generate initial validator set.",
+			);
+			keys.iter().map(|x| x.1.clone()).collect()
+		});
+		assert!(
+			!initial_validators_0.is_empty(),
+			"Empty validator set for session 0 in genesis block!"
+		);
+
+		let initial_validators_1 = T::SessionManager::new_session_genesis(1)
+			.unwrap_or_else(|| initial_validators_0.clone());
+		assert!(
+			!initial_validators_1.is_empty(),
+			"Empty validator set for session 1 in genesis block!"
+		);
+
+		let queued_keys: Vec<_> = initial_validators_1
+			.iter()
+			.cloned()
+			.map(|v| {
+				(
+					v.clone(),
+					Pallet::<T>::load_keys(&v).expect("Validator in session 1 missing keys!"),
+				)
+			})
+			.collect();
+
+		// Tell everyone about the genesis session keys
+		T::SessionHandler::on_genesis_session::<T::Keys>(&queued_keys);
+
+		Validators::<T>::put(initial_validators_0);
+		<QueuedKeys<T>>::put(queued_keys);
+
+		T::SessionManager::start_session(0);
 	}
 }
 

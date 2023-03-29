@@ -459,6 +459,67 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
+	pub fn genesis_init(config: crate::InitConfig<T>) {
+		use frame_election_provider_support::ElectionProviderBase;
+
+		ValidatorCount::<T>::put(config.validator_count);
+		MinimumValidatorCount::<T>::put(config.minimum_validator_count);
+		Invulnerables::<T>::put(&config.invulnerables);
+		ForceEra::<T>::put(config.force_era);
+		CanceledSlashPayout::<T>::put(config.canceled_payout);
+		SlashRewardFraction::<T>::put(config.slash_reward_fraction);
+		MinNominatorBond::<T>::put(config.min_nominator_bond);
+		MinValidatorBond::<T>::put(config.min_validator_bond);
+		if let Some(x) = config.max_validator_count {
+			MaxValidatorsCount::<T>::put(x);
+		}
+		if let Some(x) = config.max_nominator_count {
+			MaxNominatorsCount::<T>::put(x);
+		}
+
+		for &(ref stash, ref controller, balance, ref status) in &config.stakers {
+			crate::log!(
+				trace,
+				"inserting genesis staker: {:?} => {:?} => {:?}",
+				stash,
+				balance,
+				status
+			);
+			assert!(
+				T::Currency::free_balance(stash) >= balance,
+				"Stash does not have enough balance to bond."
+			);
+			frame_support::assert_ok!(<Pallet<T>>::bond(
+				T::RuntimeOrigin::from(Some(stash.clone()).into()),
+				T::Lookup::unlookup(controller.clone()),
+				balance,
+				RewardDestination::Staked,
+			));
+			frame_support::assert_ok!(match status {
+				crate::StakerStatus::Validator => <Pallet<T>>::validate(
+					T::RuntimeOrigin::from(Some(controller.clone()).into()),
+					Default::default(),
+				),
+				crate::StakerStatus::Nominator(votes) => <Pallet<T>>::nominate(
+					T::RuntimeOrigin::from(Some(controller.clone()).into()),
+					votes.iter().map(|l| T::Lookup::unlookup(l.clone())).collect(),
+				),
+				_ => Ok(()),
+			});
+			assert!(
+				ValidatorCount::<T>::get() <=
+					<T::ElectionProvider as ElectionProviderBase>::MaxWinners::get()
+			);
+		}
+
+		// all voters are reported to the `VoterList`.
+		assert_eq!(
+			T::VoterList::count(),
+			Nominators::<T>::count() + Validators::<T>::count(),
+			"not all genesis stakers were inserted into sorted list provider, something is wrong."
+		);
+	}
+
 	/// Plan a new era.
 	///
 	/// * Bump the current era storage (which holds the latest planned era).

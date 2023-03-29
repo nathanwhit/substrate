@@ -616,62 +616,7 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T: Config> GenesisBuild<T> for GenesisConfig<T> {
 		fn build(&self) {
-			ValidatorCount::<T>::put(self.validator_count);
-			MinimumValidatorCount::<T>::put(self.minimum_validator_count);
-			Invulnerables::<T>::put(&self.invulnerables);
-			ForceEra::<T>::put(self.force_era);
-			CanceledSlashPayout::<T>::put(self.canceled_payout);
-			SlashRewardFraction::<T>::put(self.slash_reward_fraction);
-			MinNominatorBond::<T>::put(self.min_nominator_bond);
-			MinValidatorBond::<T>::put(self.min_validator_bond);
-			if let Some(x) = self.max_validator_count {
-				MaxValidatorsCount::<T>::put(x);
-			}
-			if let Some(x) = self.max_nominator_count {
-				MaxNominatorsCount::<T>::put(x);
-			}
-
-			for &(ref stash, ref controller, balance, ref status) in &self.stakers {
-				crate::log!(
-					trace,
-					"inserting genesis staker: {:?} => {:?} => {:?}",
-					stash,
-					balance,
-					status
-				);
-				assert!(
-					T::Currency::free_balance(stash) >= balance,
-					"Stash does not have enough balance to bond."
-				);
-				frame_support::assert_ok!(<Pallet<T>>::bond(
-					T::RuntimeOrigin::from(Some(stash.clone()).into()),
-					T::Lookup::unlookup(controller.clone()),
-					balance,
-					RewardDestination::Staked,
-				));
-				frame_support::assert_ok!(match status {
-					crate::StakerStatus::Validator => <Pallet<T>>::validate(
-						T::RuntimeOrigin::from(Some(controller.clone()).into()),
-						Default::default(),
-					),
-					crate::StakerStatus::Nominator(votes) => <Pallet<T>>::nominate(
-						T::RuntimeOrigin::from(Some(controller.clone()).into()),
-						votes.iter().map(|l| T::Lookup::unlookup(l.clone())).collect(),
-					),
-					_ => Ok(()),
-				});
-				assert!(
-					ValidatorCount::<T>::get() <=
-						<T::ElectionProvider as ElectionProviderBase>::MaxWinners::get()
-				);
-			}
-
-			// all voters are reported to the `VoterList`.
-			assert_eq!(
-				T::VoterList::count(),
-				Nominators::<T>::count() + Validators::<T>::count(),
-				"not all genesis stakers were inserted into sorted list provider, something is wrong."
-			);
+			Pallet::<T>::genesis_init(self.into());
 		}
 	}
 
@@ -1781,4 +1726,55 @@ pub mod pallet {
 /// Check that list is sorted and has no duplicates.
 fn is_sorted_and_unique(list: &[u32]) -> bool {
 	list.windows(2).all(|w| w[0] < w[1])
+}
+
+pub struct InitConfig<T: pallet::Config> {
+	pub validator_count: u32,
+	pub minimum_validator_count: u32,
+	pub invulnerables: Vec<T::AccountId>,
+	pub force_era: Forcing,
+	pub slash_reward_fraction: Perbill,
+	pub canceled_payout: BalanceOf<T>,
+	pub stakers: Vec<(T::AccountId, T::AccountId, BalanceOf<T>, crate::StakerStatus<T::AccountId>)>,
+	pub min_nominator_bond: BalanceOf<T>,
+	pub min_validator_bond: BalanceOf<T>,
+	pub max_validator_count: Option<u32>,
+	pub max_nominator_count: Option<u32>,
+}
+
+#[cfg(feature = "std")]
+impl<T: pallet::Config> From<&pallet::GenesisConfig<T>> for InitConfig<T> {
+	fn from(config: &pallet::GenesisConfig<T>) -> Self {
+		InitConfig {
+			validator_count: config.validator_count,
+			minimum_validator_count: config.minimum_validator_count,
+			invulnerables: config.invulnerables.clone(),
+			force_era: config.force_era,
+			slash_reward_fraction: config.slash_reward_fraction,
+			canceled_payout: config.canceled_payout,
+			stakers: config.stakers.clone(),
+			min_nominator_bond: config.min_nominator_bond,
+			min_validator_bond: config.min_validator_bond,
+			max_validator_count: config.max_validator_count,
+			max_nominator_count: config.max_nominator_count,
+		}
+	}
+}
+
+impl<T: pallet::Config> Default for InitConfig<T> {
+	fn default() -> Self {
+		InitConfig {
+			validator_count: Default::default(),
+			minimum_validator_count: Default::default(),
+			invulnerables: Default::default(),
+			force_era: Default::default(),
+			slash_reward_fraction: Default::default(),
+			canceled_payout: Default::default(),
+			stakers: Default::default(),
+			min_nominator_bond: Default::default(),
+			min_validator_bond: Default::default(),
+			max_validator_count: None,
+			max_nominator_count: None,
+		}
+	}
 }

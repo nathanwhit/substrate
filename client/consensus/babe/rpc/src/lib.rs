@@ -205,6 +205,7 @@ where
 			*parent.number(),
 			slot.into(),
 			|slot| Epoch::genesis(babe_config, slot),
+			babe_config.initial_babe_block,
 		)
 		.map_err(|e| Error::Consensus(ConsensusError::ChainLookup(e.to_string())))?
 		.ok_or(Error::Consensus(ConsensusError::InvalidAuthoritiesSet))

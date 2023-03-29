@@ -47,6 +47,9 @@ pub(super) struct VerificationParams<'a, B: 'a + BlockT> {
 	pub(super) slot_now: Slot,
 	/// Epoch descriptor of the epoch this block _should_ be under, if it's valid.
 	pub(super) epoch: &'a Epoch,
+
+	/// Initial babe block
+	pub(super) initial_babe_block: sp_core::U256,
 }
 
 /// Check a header has been signed by the right key. If the slot is too far in
@@ -63,10 +66,10 @@ pub(super) struct VerificationParams<'a, B: 'a + BlockT> {
 pub(super) fn check_header<B: BlockT + Sized>(
 	params: VerificationParams<B>,
 ) -> Result<CheckedHeader<B::Header, VerifiedHeaderInfo>, Error<B>> {
-	let VerificationParams { mut header, pre_digest, slot_now, epoch } = params;
+	let VerificationParams { mut header, pre_digest, slot_now, epoch, initial_babe_block } = params;
 
 	let authorities = &epoch.authorities;
-	let pre_digest = pre_digest.map(Ok).unwrap_or_else(|| find_pre_digest::<B>(&header))?;
+	let pre_digest = pre_digest.map(Ok).unwrap_or_else(|| find_pre_digest::<B>(&header, &initial_babe_block))?;
 
 	trace!(target: LOG_TARGET, "Checking header");
 	let seal = header

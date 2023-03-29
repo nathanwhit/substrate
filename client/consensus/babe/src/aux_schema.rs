@@ -189,6 +189,7 @@ mod test {
 				authorities: Vec::new(),
 				randomness: Default::default(),
 				allowed_slots: AllowedSlots::PrimaryAndSecondaryPlainSlots,
+				initial_babe_block: Default::default(),
 			},
 		)
 		.unwrap();

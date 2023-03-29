@@ -102,7 +102,7 @@ where
 		import_params.finalized = false;
 		import_params.fork_choice = Some(ForkChoiceStrategy::LongestChain);
 
-		let pre_digest = find_pre_digest::<B>(&import_params.header)?;
+		let pre_digest = find_pre_digest::<B>(&import_params.header, &sp_core::U256::zero())?;
 
 		let parent_hash = import_params.header.parent_hash();
 		let parent = self
@@ -118,6 +118,7 @@ where
 				&parent.hash(),
 				*parent.number(),
 				pre_digest.slot(),
+				sp_core::U256::zero(),
 			)
 			.map_err(|e| format!("failed to fetch epoch_descriptor: {}", e))?
 			.ok_or_else(|| format!("{}", sp_consensus::Error::InvalidAuthoritiesSet))?;
@@ -171,6 +172,7 @@ where
 				&parent.hash(),
 				*parent.number(),
 				slot,
+				sp_core::U256::zero(),
 			)
 			.map_err(|e| Error::StringError(format!("failed to fetch epoch_descriptor: {}", e)))?
 			.ok_or(sp_consensus::Error::InvalidAuthoritiesSet)?;
@@ -225,6 +227,7 @@ where
 					&parent.hash(),
 					*parent.number(),
 					slot,
+					sp_core::U256::zero(),
 				)
 				.map_err(|e| {
 					Error::StringError(format!("failed to fetch epoch_descriptor: {}", e))
@@ -278,6 +281,7 @@ where
 				&parent.hash(),
 				*parent.number(),
 				slot,
+				sp_core::U256::zero(),
 			)
 			.map_err(|e| Error::StringError(format!("failed to fetch epoch_descriptor: {}", e)))?
 			.ok_or(sp_consensus::Error::InvalidAuthoritiesSet)?;

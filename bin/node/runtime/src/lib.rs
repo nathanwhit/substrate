@@ -2044,6 +2044,7 @@ impl_runtime_apis! {
 				authorities: Babe::authorities().to_vec(),
 				randomness: Babe::randomness(),
 				allowed_slots: epoch_config.allowed_slots,
+				initial_babe_block: sp_core::U256::from(0),
 			}
 		}
 

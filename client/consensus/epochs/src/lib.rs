@@ -24,6 +24,7 @@ use codec::{Decode, Encode};
 use fork_tree::{FilterAction, ForkTree};
 use sc_client_api::utils::is_descendent_of;
 use sp_blockchain::{Error as ClientError, HeaderBackend, HeaderMetadata};
+use sp_core::U256;
 use sp_runtime::traits::{Block as BlockT, NumberFor, One, Zero};
 use std::{
 	borrow::{Borrow, BorrowMut},
@@ -363,7 +364,7 @@ where
 impl<Hash, Number, E: Epoch> EpochChanges<Hash, Number, E>
 where
 	Hash: PartialEq + Ord + AsRef<[u8]> + AsMut<[u8]> + Copy + std::fmt::Debug,
-	Number: Ord + One + Zero + Add<Output = Number> + Sub<Output = Number> + Copy + std::fmt::Debug,
+	Number: Ord + One + Zero + Add<Output = Number> + Sub<Output = Number> + Copy + std::fmt::Debug + Into<sp_core::U256>,
 {
 	/// Create a new epoch change.
 	pub fn new() -> Self {
@@ -518,6 +519,7 @@ where
 		parent_number: Number,
 		slot: E::Slot,
 		make_genesis: G,
+		genesis_number: U256,
 	) -> Result<Option<E>, fork_tree::Error<D::Error>>
 	where
 		G: FnOnce(E::Slot) -> E,
@@ -528,6 +530,7 @@ where
 			parent_hash,
 			parent_number,
 			slot,
+			genesis_number,
 		)?;
 
 		Ok(descriptor.and_then(|des| self.epoch_data(&des, make_genesis)))
@@ -543,8 +546,9 @@ where
 		parent_hash: &Hash,
 		parent_number: Number,
 		slot: E::Slot,
+		genesis_number: U256,
 	) -> Result<Option<ViableEpochDescriptor<Hash, Number, E>>, fork_tree::Error<D::Error>> {
-		if parent_number == Zero::zero() {
+		if parent_number.clone().into() == genesis_number {
 			// need to insert the genesis epoch.
 			return Ok(Some(ViableEpochDescriptor::UnimportedGenesis(slot)))
 		}

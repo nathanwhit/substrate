@@ -191,7 +191,7 @@ impl<B: Block> VoterOracle<B> {
 		if rounds.mandatory_done() {
 			// There's only one session active and its mandatory is done.
 			// Accept any GRANDPA finalized vote.
-			Ok((rounds.session_start(), best_grandpa.into()))
+			Ok((rounds.session_start(), best_grandpa))
 		} else {
 			// There's at least one session with mandatory not done.
 			// Only accept votes for the mandatory block in the front of queue.

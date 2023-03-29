@@ -325,7 +325,7 @@ pub struct TaskManager {
 	/// A receiver for spawned essential-tasks concluding.
 	essential_failed_rx: TracingUnboundedReceiver<()>,
 	/// Things to keep alive until the task manager is dropped.
-	keep_alive: Box<dyn std::any::Any + Send>,
+	keep_alive: Box<dyn std::any::Any + Send + Sync>,
 	/// A list of other `TaskManager`'s to terminate and gracefully shutdown when the parent
 	/// terminates and gracefully shutdown. Also ends the parent `future()` if a child's essential
 	/// task fails.
@@ -408,7 +408,7 @@ impl TaskManager {
 	}
 
 	/// Set what the task manager should keep alive, can be called multiple times.
-	pub fn keep_alive<T: 'static + Send>(&mut self, to_keep_alive: T) {
+	pub fn keep_alive<T: 'static + Send + Sync>(&mut self, to_keep_alive: T) {
 		// allows this fn to safely called multiple times.
 		use std::mem;
 		let old = mem::replace(&mut self.keep_alive, Box::new(()));

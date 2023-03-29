@@ -1032,6 +1032,23 @@ where
 	SelectChain: sp_consensus::SelectChain<Block>,
 	CIDP: CreateInherentDataProviders<Block, ()>,
 {
+	/// Construct a new instance.
+	pub fn new(
+		babe_link: BabeLink<Block>,
+		client: Arc<Client>,
+		select_chain: SelectChain,
+		create_inherent_data_providers: CIDP,
+		telemetry: Option<TelemetryHandle>,
+	) -> Self {
+		BabeVerifier {
+			client,
+			select_chain,
+			create_inherent_data_providers,
+			config: babe_link.config,
+			epoch_changes: babe_link.epoch_changes,
+			telemetry,
+		}
+	}
 	async fn check_inherents(
 		&self,
 		block: Block,

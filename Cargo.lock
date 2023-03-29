@@ -8516,6 +8516,7 @@ dependencies = [
  "sc-client-api",
  "sc-consensus",
  "sp-blockchain",
+ "sp-core",
  "sp-runtime",
 ]
 

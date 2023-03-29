@@ -855,6 +855,7 @@ pub trait Header: Clone + Send + Sync + Codec + Eq + MaybeSerialize + Debug + 's
 		+ MaybeDisplay
 		+ AtLeast32BitUnsigned
 		+ Codec
+		+ Into<sp_core::U256>
 		+ sp_std::str::FromStr;
 	/// Header hash type
 	type Hash: Member

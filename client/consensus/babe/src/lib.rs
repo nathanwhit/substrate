@@ -117,7 +117,7 @@ use sp_blockchain::{
 use sp_consensus::{BlockOrigin, Environment, Error as ConsensusError, Proposer, SelectChain};
 use sp_consensus_babe::inherents::BabeInherentData;
 use sp_consensus_slots::Slot;
-use sp_core::{crypto::ByteArray, ExecutionContext};
+use sp_core::{crypto::ByteArray, ExecutionContext, U256};
 use sp_inherents::{CreateInherentDataProviders, InherentData, InherentDataProvider};
 use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
 use sp_runtime::{
@@ -612,6 +612,7 @@ async fn answer_requests<B: BlockT, C>(
 							&parent_hash,
 							parent_number,
 							slot_number,
+							config.initial_babe_block.clone(),
 						)
 						.map_err(|e| Error::<B>::ForkTree(Box::new(e)))?
 						.ok_or(Error::<B>::FetchEpoch(parent_hash))?;
@@ -760,6 +761,7 @@ where
 				&parent.hash(),
 				*parent.number(),
 				slot,
+				self.config.initial_babe_block.clone(),
 			)
 			.map_err(|e| ConsensusError::ChainLookup(e.to_string()))?
 			.ok_or(sp_consensus::Error::InvalidAuthoritiesSet)
@@ -871,7 +873,8 @@ where
 	fn should_backoff(&self, slot: Slot, chain_head: &B::Header) -> bool {
 		if let Some(ref strategy) = self.backoff_authoring_blocks {
 			if let Ok(chain_head_slot) =
-				find_pre_digest::<B>(chain_head).map(|digest| digest.slot())
+				find_pre_digest::<B>(chain_head, &self.config.initial_babe_block)
+					.map(|digest| digest.slot())
 			{
 				return strategy.should_backoff(
 					*chain_head.number(),
@@ -906,7 +909,10 @@ where
 	}
 
 	fn proposing_remaining_duration(&self, slot_info: &SlotInfo<B>) -> Duration {
-		let parent_slot = find_pre_digest::<B>(&slot_info.chain_head).ok().map(|d| d.slot());
+		let parent_slot =
+			find_pre_digest::<B>(&slot_info.chain_head, &self.config.initial_babe_block)
+				.ok()
+				.map(|d| d.slot());
 
 		sc_consensus_slots::proposing_remaining_duration(
 			parent_slot,
@@ -921,10 +927,18 @@ where
 
 /// Extract the BABE pre digest from the given header. Pre-runtime digests are
 /// mandatory, the function will return `Err` if none is found.
-pub fn find_pre_digest<B: BlockT>(header: &B::Header) -> Result<PreDigest, Error<B>> {
+pub fn find_pre_digest<B: BlockT>(
+	header: &B::Header,
+	initial_block: &U256,
+) -> Result<PreDigest, Error<B>> {
 	// genesis block doesn't contain a pre digest so let's generate a
 	// dummy one to not break any invariants in the rest of the code
-	if header.number().is_zero() {
+	let number: U256 = header.number().clone().into();
+	log::trace!(
+		target: LOG_TARGET,
+		"Checking for pre-runtime digest : number = {number:?}, initial_block = {initial_block:?}"
+	);
+	if &number <= initial_block {
 		return Ok(PreDigest::SecondaryPlain(SecondaryPlainPreDigest {
 			slot: 0.into(),
 			authority_index: 0,
@@ -1194,7 +1208,7 @@ where
 			.header_metadata(parent_hash)
 			.map_err(Error::<Block>::FetchParentHeader)?;
 
-		let pre_digest = find_pre_digest::<Block>(&block.header)?;
+		let pre_digest = find_pre_digest::<Block>(&block.header, &self.config.initial_babe_block)?;
 		let (check_header, epoch_descriptor) = {
 			let epoch_changes = self.epoch_changes.shared_data();
 			let epoch_descriptor = epoch_changes
@@ -1203,6 +1217,7 @@ where
 					&parent_hash,
 					parent_header_metadata.number,
 					pre_digest.slot(),
+					self.config.initial_babe_block.clone(),
 				)
 				.map_err(|e| Error::<Block>::ForkTree(Box::new(e)))?
 				.ok_or(Error::<Block>::FetchEpoch(parent_hash))?;
@@ -1217,6 +1232,7 @@ where
 				pre_digest: Some(pre_digest),
 				slot_now: slot_now + 1,
 				epoch: viable_epoch.as_ref(),
+				initial_babe_block: self.config.initial_babe_block.clone(),
 			};
 
 			(verification::check_header::<Block>(v_params)?, epoch_descriptor)
@@ -1454,7 +1470,8 @@ where
 			return self.import_state(block).await
 		}
 
-		let pre_digest = find_pre_digest::<Block>(&block.header).expect(
+		let pre_digest = find_pre_digest::<Block>(&block.header, &self.config.initial_babe_block)
+			.expect(
 			"valid babe headers must contain a predigest; header has been already verified; qed",
 		);
 		let slot = pre_digest.slot();
@@ -1470,7 +1487,7 @@ where
 				)
 			})?;
 
-		let parent_slot = find_pre_digest::<Block>(&parent_header).map(|d| d.slot()).expect(
+		let parent_slot = find_pre_digest::<Block>(&parent_header, &self.config.initial_babe_block).map(|d| d.slot()).expect(
 			"parent is non-genesis; valid BABE headers contain a pre-digest; header has already \
 			 been verified; qed",
 		);
@@ -1497,7 +1514,8 @@ where
 			//
 			// also provides the total weight of the chain, including the imported block.
 			let (epoch_descriptor, first_in_epoch, parent_weight) = {
-				let parent_weight = if *parent_header.number() == Zero::zero() {
+				let number: U256 = parent_header.number().clone().into();
+				let parent_weight = if &number == &self.config.initial_babe_block {
 					0
 				} else {
 					aux_schema::load_block_weight(&*self.client, parent_hash)
@@ -1615,7 +1633,11 @@ where
 				// used by pruning may not know about the block that is being
 				// imported.
 				let prune_and_import = || {
-					prune_finalized(self.client.clone(), &mut epoch_changes)?;
+					prune_finalized(
+						self.client.clone(),
+						&mut epoch_changes,
+						&self.config.initial_babe_block,
+					)?;
 
 					epoch_changes
 						.import(
@@ -1712,6 +1734,7 @@ where
 fn prune_finalized<Block, Client>(
 	client: Arc<Client>,
 	epoch_changes: &mut EpochChangesFor<Block, Epoch>,
+	initial_block: &U256,
 ) -> Result<(), ConsensusError>
 where
 	Block: BlockT,
@@ -1727,7 +1750,7 @@ where
 				"best finalized hash was given by client; finalized headers must exist in db; qed",
 			);
 
-		find_pre_digest::<Block>(&finalized_header)
+		find_pre_digest::<Block>(&finalized_header, initial_block)
 			.expect("finalized header must be valid; valid blocks have a pre-digest; qed")
 			.slot()
 	};
@@ -1767,7 +1790,7 @@ where
 	// NOTE: this isn't entirely necessary, but since we didn't use to prune the
 	// epoch tree it is useful as a migration, so that nodes prune long trees on
 	// startup rather than waiting until importing the next epoch change block.
-	prune_finalized(client.clone(), &mut epoch_changes.shared_data())?;
+	prune_finalized(client.clone(), &mut epoch_changes.shared_data(), &config.initial_babe_block)?;
 
 	let client_weak = Arc::downgrade(&client);
 	let on_finality = move |summary: &FinalityNotification<Block>| {

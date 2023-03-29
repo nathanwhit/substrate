@@ -883,6 +883,7 @@ cfg_if! {
 							.into_iter().map(|x|(x, 1)).collect(),
 						randomness: <pallet_babe::Pallet<Runtime>>::randomness(),
 						allowed_slots: AllowedSlots::PrimaryAndSecondaryPlainSlots,
+						initial_babe_block: Default::default(),
 					}
 				}
 
@@ -1179,6 +1180,7 @@ cfg_if! {
 							.into_iter().map(|x|(x, 1)).collect(),
 						randomness: <pallet_babe::Pallet<Runtime>>::randomness(),
 						allowed_slots: AllowedSlots::PrimaryAndSecondaryPlainSlots,
+						initial_babe_block: Default::default(),
 					}
 				}
 

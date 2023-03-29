@@ -179,6 +179,7 @@ impl From<BabeConfigurationV1> for BabeConfiguration {
 			} else {
 				AllowedSlots::PrimarySlots
 			},
+			initial_babe_block: Default::default(),
 		}
 	}
 }
@@ -211,6 +212,10 @@ pub struct BabeConfiguration {
 
 	/// Type of allowed slots.
 	pub allowed_slots: AllowedSlots,
+
+	/// The block number of the first block BABE should author.
+	/// Usually zero (i.e. the genesis block).
+	pub initial_babe_block: sp_core::U256,
 }
 
 impl BabeConfiguration {

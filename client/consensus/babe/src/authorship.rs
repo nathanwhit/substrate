@@ -205,6 +205,8 @@ pub fn claim_slot(
 		.enumerate()
 		.map(|(index, a)| (a.0.clone(), index))
 		.collect::<Vec<_>>();
+
+	log::debug!(target: "babe", "claim_slot: Trying to claim slot {authorities:#?} {epoch:#?}");
 	claim_slot_using_keys(slot, epoch, keystore, &authorities)
 }
 

@@ -364,7 +364,14 @@ where
 impl<Hash, Number, E: Epoch> EpochChanges<Hash, Number, E>
 where
 	Hash: PartialEq + Ord + AsRef<[u8]> + AsMut<[u8]> + Copy + std::fmt::Debug,
-	Number: Ord + One + Zero + Add<Output = Number> + Sub<Output = Number> + Copy + std::fmt::Debug + Into<sp_core::U256>,
+	Number: Ord
+		+ One
+		+ Zero
+		+ Add<Output = Number>
+		+ Sub<Output = Number>
+		+ Copy
+		+ std::fmt::Debug
+		+ Into<sp_core::U256>,
 {
 	/// Create a new epoch change.
 	pub fn new() -> Self {

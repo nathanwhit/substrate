@@ -485,16 +485,18 @@ impl<T: Config> Pallet<T> {
 				balance,
 				status
 			);
-			assert!(
-				T::Currency::free_balance(stash) >= balance,
-				"Stash does not have enough balance to bond."
-			);
-			frame_support::assert_ok!(<Pallet<T>>::bond(
-				T::RuntimeOrigin::from(Some(stash.clone()).into()),
-				T::Lookup::unlookup(controller.clone()),
-				balance,
-				RewardDestination::Staked,
-			));
+			if <Pallet<T>>::bonded(&stash).is_none() {
+				assert!(
+					T::Currency::free_balance(stash) >= balance,
+					"Stash does not have enough balance to bond."
+				);
+				frame_support::assert_ok!(<Pallet<T>>::bond(
+					T::RuntimeOrigin::from(Some(stash.clone()).into()),
+					T::Lookup::unlookup(controller.clone()),
+					balance,
+					RewardDestination::Staked,
+				));
+			}
 			frame_support::assert_ok!(match status {
 				crate::StakerStatus::Validator => <Pallet<T>>::validate(
 					T::RuntimeOrigin::from(Some(controller.clone()).into()),

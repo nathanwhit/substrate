@@ -609,7 +609,14 @@ where
 				ToServiceCommand::SetSyncForkRequest(peers, hash, number) => {
 					self.chain_sync.set_sync_fork_request(peers, &hash, number);
 				},
-				ToServiceCommand::EventStream(tx) => self.event_streams.push(tx),
+				ToServiceCommand::EventStream(tx) => {
+					for peer in self.peers.keys() {
+						if let Err(e) = tx.unbounded_send(SyncEvent::PeerConnected(*peer)) {
+							log::error!(target: "sync", "Failed to notify new event stream of existing peers: {}", e);
+						}
+					}
+					self.event_streams.push(tx);
+				},
 				ToServiceCommand::RequestJustification(hash, number) =>
 					self.chain_sync.request_justification(&hash, number),
 				ToServiceCommand::ClearJustificationRequests =>

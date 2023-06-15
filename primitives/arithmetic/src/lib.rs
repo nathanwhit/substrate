@@ -45,7 +45,7 @@ pub use per_things::{
 	InnerOf, MultiplyArg, PerThing, PerU16, Perbill, Percent, Permill, Perquintill, RationalArg,
 	ReciprocalArg, Rounding, SignedRounding, UpperOf,
 };
-pub use rational::{Rational128, RationalInfinite};
+pub use rational::{MultiplyRational, Rational128, RationalInfinite};
 
 use sp_std::{cmp::Ordering, fmt::Debug, prelude::*};
 use traits::{BaseArithmetic, One, SaturatedConversion, Unsigned, Zero};
@@ -53,12 +53,12 @@ use traits::{BaseArithmetic, One, SaturatedConversion, Unsigned, Zero};
 use codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 
-#[cfg(feature = "std")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 /// Arithmetic errors.
 #[derive(Eq, PartialEq, Clone, Copy, Encode, Decode, Debug, TypeInfo, MaxEncodedLen)]
-#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum ArithmeticError {
 	/// Underflow.
 	Underflow,

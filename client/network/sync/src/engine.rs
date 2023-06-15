@@ -37,7 +37,7 @@ use sc_client_api::{BlockBackend, HeaderBackend, ProofProvider};
 use sc_consensus::import_queue::ImportQueueService;
 use sc_network::{
 	config::{
-		NetworkConfiguration, NonDefaultSetConfig, ProtocolId, SyncMode as SyncOperationMode,
+		FullNetworkConfiguration, NonDefaultSetConfig, ProtocolId, SyncMode as SyncOperationMode,
 	},
 	utils::LruHashSet,
 	NotificationsSink, ProtocolName,
@@ -57,10 +57,7 @@ use sc_network_common::{
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
 use sp_blockchain::HeaderMetadata;
 use sp_consensus::block_validation::BlockAnnounceValidator;
-use sp_runtime::{
-	traits::{Block as BlockT, CheckedSub, Header, NumberFor, Zero},
-	SaturatedConversion,
-};
+use sp_runtime::traits::{Block as BlockT, Header, NumberFor, Zero};
 
 use std::{
 	collections::{HashMap, HashSet},
@@ -70,31 +67,28 @@ use std::{
 		Arc,
 	},
 	task::Poll,
+	time::{Duration, Instant},
 };
 
 /// Interval at which we perform time based maintenance
 const TICK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1100);
 
-/// When light node connects to the full node and the full node is behind light node
-/// for at least `LIGHT_MAXIMAL_BLOCKS_DIFFERENCE` blocks, we consider it not useful
-/// and disconnect to free connection slot.
-const LIGHT_MAXIMAL_BLOCKS_DIFFERENCE: u64 = 8192;
-
 /// Maximum number of known block hashes to keep for a peer.
 const MAX_KNOWN_BLOCKS: usize = 1024; // ~32kb per peer + LruHashSet overhead
 
+/// If the block announces stream to peer has been inactive for two minutes meaning local node
+/// has not sent or received block announcements to/from the peer, report the node for inactivity,
+/// disconnect it and attempt to establish connection to some other peer.
+const INACTIVITY_EVICT_THRESHOLD: Duration = Duration::from_secs(30);
+
 mod rep {
 	use sc_peerset::ReputationChange as Rep;
-	/// Reputation change when we are a light client and a peer is behind us.
-	pub const PEER_BEHIND_US_LIGHT: Rep = Rep::new(-(1 << 8), "Useless for a light peer");
-	/// We received a message that failed to decode.
-	pub const BAD_MESSAGE: Rep = Rep::new(-(1 << 12), "Bad message");
 	/// Peer has different genesis.
 	pub const GENESIS_MISMATCH: Rep = Rep::new_fatal("Genesis mismatch");
-	/// Peer role does not match (e.g. light peer connecting to another light peer).
-	pub const BAD_ROLE: Rep = Rep::new_fatal("Unsupported role");
 	/// Peer send us a block announcement that failed at validation.
 	pub const BAD_BLOCK_ANNOUNCEMENT: Rep = Rep::new(-(1 << 12), "Bad block announcement");
+	/// Block announce substream with the peer has been inactive too long
+	pub const INACTIVE_SUBSTREAM: Rep = Rep::new(-(1 << 10), "Inactive block announce substream");
 }
 
 struct Metrics {
@@ -214,6 +208,9 @@ pub struct SyncingEngine<B: BlockT, Client> {
 	/// All connected peers. Contains both full and light node peers.
 	peers: HashMap<PeerId, Peer<B>>,
 
+	/// Evicted peers
+	evicted: HashSet<PeerId>,
+
 	/// List of nodes for which we perform additional logging because they are important for the
 	/// user.
 	important_peers: HashSet<PeerId>,
@@ -259,7 +256,7 @@ where
 		roles: Roles,
 		client: Arc<Client>,
 		metrics_registry: Option<&Registry>,
-		network_config: &NetworkConfiguration,
+		net_config: &FullNetworkConfiguration,
 		protocol_id: ProtocolId,
 		fork_id: &Option<String>,
 		block_announce_validator: Box<dyn BlockAnnounceValidator<B> + Send>,
@@ -271,44 +268,56 @@ where
 		warp_sync_protocol_name: Option<ProtocolName>,
 		rx: sc_utils::mpsc::TracingUnboundedReceiver<sc_network::SyncEvent<B>>,
 	) -> Result<(Self, SyncingService<B>, NonDefaultSetConfig), ClientError> {
-		let mode = match network_config.sync_mode {
+		let mode = match net_config.network_config.sync_mode {
 			SyncOperationMode::Full => SyncMode::Full,
 			SyncOperationMode::Fast { skip_proofs, storage_chain_mode } =>
 				SyncMode::LightState { skip_proofs, storage_chain_mode },
 			SyncOperationMode::Warp => SyncMode::Warp,
 		};
-		let max_parallel_downloads = network_config.max_parallel_downloads;
+		let max_parallel_downloads = net_config.network_config.max_parallel_downloads;
+		let max_blocks_per_request = if net_config.network_config.max_blocks_per_request >
+			crate::MAX_BLOCKS_IN_RESPONSE as u32
+		{
+			log::info!(target: "sync", "clamping maximum blocks per request to {}", crate::MAX_BLOCKS_IN_RESPONSE);
+			crate::MAX_BLOCKS_IN_RESPONSE as u32
+		} else {
+			net_config.network_config.max_blocks_per_request
+		};
 		let cache_capacity = NonZeroUsize::new(
-			(network_config.default_peers_set.in_peers as usize +
-				network_config.default_peers_set.out_peers as usize)
+			(net_config.network_config.default_peers_set.in_peers as usize +
+				net_config.network_config.default_peers_set.out_peers as usize)
 				.max(1),
 		)
 		.expect("cache capacity is not zero");
 		let important_peers = {
 			let mut imp_p = HashSet::new();
-			for reserved in &network_config.default_peers_set.reserved_nodes {
+			for reserved in &net_config.network_config.default_peers_set.reserved_nodes {
 				imp_p.insert(reserved.peer_id);
 			}
-			for reserved in network_config
-				.extra_sets
-				.iter()
-				.flat_map(|s| s.set_config.reserved_nodes.iter())
-			{
-				imp_p.insert(reserved.peer_id);
+			for config in net_config.notification_protocols() {
+				let peer_ids = config
+					.set_config
+					.reserved_nodes
+					.iter()
+					.map(|info| info.peer_id)
+					.collect::<Vec<PeerId>>();
+				imp_p.extend(peer_ids);
 			}
+
 			imp_p.shrink_to_fit();
 			imp_p
 		};
 		let boot_node_ids = {
 			let mut list = HashSet::new();
-			for node in &network_config.boot_nodes {
+			for node in &net_config.network_config.boot_nodes {
 				list.insert(node.peer_id);
 			}
 			list.shrink_to_fit();
 			list
 		};
 		let default_peers_set_no_slot_peers = {
-			let mut no_slot_p: HashSet<PeerId> = network_config
+			let mut no_slot_p: HashSet<PeerId> = net_config
+				.network_config
 				.default_peers_set
 				.reserved_nodes
 				.iter()
@@ -317,11 +326,12 @@ where
 			no_slot_p.shrink_to_fit();
 			no_slot_p
 		};
-		let default_peers_set_num_full = network_config.default_peers_set_num_full as usize;
+		let default_peers_set_num_full =
+			net_config.network_config.default_peers_set_num_full as usize;
 		let default_peers_set_num_light = {
-			let total = network_config.default_peers_set.out_peers +
-				network_config.default_peers_set.in_peers;
-			total.saturating_sub(network_config.default_peers_set_num_full) as usize
+			let total = net_config.network_config.default_peers_set.out_peers +
+				net_config.network_config.default_peers_set.in_peers;
+			total.saturating_sub(net_config.network_config.default_peers_set_num_full) as usize
 		};
 
 		let (chain_sync, block_announce_config) = ChainSync::new(
@@ -332,6 +342,7 @@ where
 			roles,
 			block_announce_validator,
 			max_parallel_downloads,
+			max_blocks_per_request,
 			warp_sync_params,
 			metrics_registry,
 			network_service.clone(),
@@ -358,6 +369,7 @@ where
 				chain_sync,
 				network_service,
 				peers: HashMap::new(),
+				evicted: HashSet::new(),
 				block_announce_data_cache: LruCache::new(cache_capacity),
 				block_announce_protocol_name,
 				num_connected: num_connected.clone(),
@@ -521,6 +533,7 @@ where
 			},
 		};
 		peer.known_blocks.insert(hash);
+		peer.last_notification_received = Instant::now();
 
 		if peer.info.roles.is_full() {
 			let is_best = match announce.state.unwrap_or(BlockState::Best) {
@@ -601,8 +614,6 @@ where
 
 		while let Poll::Ready(()) = self.tick_timeout.poll_unpin(cx) {
 			self.report_metrics();
-			self.tick_timeout.reset(TICK_TIMEOUT);
-		}
 
 		while let Poll::Ready(Some(event)) = self.service_rx.poll_next_unpin(cx) {
 			match event {
@@ -823,31 +834,6 @@ where
 			}
 
 			return Err(())
-		}
-
-		if self.roles.is_light() {
-			// we're not interested in light peers
-			if status.roles.is_light() {
-				log::debug!(target: "sync", "Peer {} is unable to serve light requests", who);
-				self.network_service.report_peer(who, rep::BAD_ROLE);
-				self.network_service
-					.disconnect_peer(who, self.block_announce_protocol_name.clone());
-				return Err(())
-			}
-
-			// we don't interested in peers that are far behind us
-			let self_best_block = self.client.info().best_number;
-			let blocks_difference = self_best_block
-				.checked_sub(&status.best_number)
-				.unwrap_or_else(Zero::zero)
-				.saturated_into::<u64>();
-			if blocks_difference > LIGHT_MAXIMAL_BLOCKS_DIFFERENCE {
-				log::debug!(target: "sync", "Peer {} is far behind us and will unable to serve light requests", who);
-				self.network_service.report_peer(who, rep::PEER_BEHIND_US_LIGHT);
-				self.network_service
-					.disconnect_peer(who, self.block_announce_protocol_name.clone());
-				return Err(())
-			}
 		}
 
 		let no_slot_peer = self.default_peers_set_no_slot_peers.contains(&who);

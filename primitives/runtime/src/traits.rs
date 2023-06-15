@@ -28,9 +28,9 @@ use crate::{
 	DispatchResult,
 };
 use impl_trait_for_tuples::impl_for_tuples;
-#[cfg(feature = "std")]
+#[cfg(feature = "serde")]
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use sp_application_crypto::AppKey;
+use sp_application_crypto::AppCrypto;
 pub use sp_arithmetic::traits::{
 	checked_pow, ensure_pow, AtLeast32Bit, AtLeast32BitUnsigned, Bounded, CheckedAdd, CheckedDiv,
 	CheckedMul, CheckedShl, CheckedShr, CheckedSub, Ensure, EnsureAdd, EnsureAddAssign, EnsureDiv,
@@ -148,10 +148,10 @@ pub trait AppVerify {
 }
 
 impl<
-		S: Verify<Signer = <<T as AppKey>::Public as sp_application_crypto::AppPublic>::Generic>
+		S: Verify<Signer = <<T as AppCrypto>::Public as sp_application_crypto::AppPublic>::Generic>
 			+ From<T>,
 		T: sp_application_crypto::Wraps<Inner = S>
-			+ sp_application_crypto::AppKey
+			+ sp_application_crypto::AppCrypto
 			+ sp_application_crypto::AppSignature
 			+ AsRef<S>
 			+ AsMut<S>
@@ -159,16 +159,18 @@ impl<
 	> AppVerify for T
 where
 	<S as Verify>::Signer: IdentifyAccount<AccountId = <S as Verify>::Signer>,
-	<<T as AppKey>::Public as sp_application_crypto::AppPublic>::Generic: IdentifyAccount<
-		AccountId = <<T as AppKey>::Public as sp_application_crypto::AppPublic>::Generic,
+	<<T as AppCrypto>::Public as sp_application_crypto::AppPublic>::Generic: IdentifyAccount<
+		AccountId = <<T as AppCrypto>::Public as sp_application_crypto::AppPublic>::Generic,
 	>,
 {
-	type AccountId = <T as AppKey>::Public;
-	fn verify<L: Lazy<[u8]>>(&self, msg: L, signer: &<T as AppKey>::Public) -> bool {
+	type AccountId = <T as AppCrypto>::Public;
+	fn verify<L: Lazy<[u8]>>(&self, msg: L, signer: &<T as AppCrypto>::Public) -> bool {
 		use sp_application_crypto::IsWrappedBy;
 		let inner: &S = self.as_ref();
 		let inner_pubkey =
-			<<T as AppKey>::Public as sp_application_crypto::AppPublic>::Generic::from_ref(signer);
+			<<T as AppCrypto>::Public as sp_application_crypto::AppPublic>::Generic::from_ref(
+				signer,
+			);
 		Verify::verify(inner, msg, inner_pubkey)
 	}
 }
@@ -714,7 +716,7 @@ pub trait Hash:
 
 /// Blake2-256 Hash implementation.
 #[derive(PartialEq, Eq, Clone, RuntimeDebug, TypeInfo)]
-#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct BlakeTwo256;
 
 impl Hasher for BlakeTwo256 {
@@ -741,7 +743,7 @@ impl Hash for BlakeTwo256 {
 
 /// Keccak-256 Hash implementation.
 #[derive(PartialEq, Eq, Clone, RuntimeDebug, TypeInfo)]
-#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Keccak256;
 
 impl Hasher for Keccak256 {
@@ -822,11 +824,13 @@ sp_core::impl_maybe_marker!(
 
 	/// A type that implements Hash when in std environment.
 	trait MaybeHash: sp_std::hash::Hash;
+);
 
-	/// A type that implements Serialize when in std environment.
+sp_core::impl_maybe_marker_std_or_serde!(
+	/// A type that implements Serialize when in std environment or serde feature is activated.
 	trait MaybeSerialize: Serialize;
 
-	/// A type that implements Serialize, DeserializeOwned and Debug when in std environment.
+	/// A type that implements Serialize, DeserializeOwned and Debug when in std environment or serde feature is activated.
 	trait MaybeSerializeDeserialize: DeserializeOwned, Serialize;
 );
 

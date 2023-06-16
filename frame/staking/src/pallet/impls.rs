@@ -483,7 +483,7 @@ impl<T: Config> Pallet<T> {
 			MaxNominatorsCount::<T>::put(x);
 		}
 
-		for &(ref stash, ref controller, balance, ref status) in &config.stakers {
+		for &(ref stash, _, balance, ref status) in &config.stakers {
 			crate::log!(
 				trace,
 				"inserting genesis staker: {:?} => {:?} => {:?}",
@@ -498,18 +498,17 @@ impl<T: Config> Pallet<T> {
 				);
 				frame_support::assert_ok!(<Pallet<T>>::bond(
 					T::RuntimeOrigin::from(Some(stash.clone()).into()),
-					T::Lookup::unlookup(controller.clone()),
 					balance,
 					RewardDestination::Staked,
 				));
 			}
 			frame_support::assert_ok!(match status {
 				crate::StakerStatus::Validator => <Pallet<T>>::validate(
-					T::RuntimeOrigin::from(Some(controller.clone()).into()),
+					T::RuntimeOrigin::from(Some(stash.clone()).into()),
 					Default::default(),
 				),
 				crate::StakerStatus::Nominator(votes) => <Pallet<T>>::nominate(
-					T::RuntimeOrigin::from(Some(controller.clone()).into()),
+					T::RuntimeOrigin::from(Some(stash.clone()).into()),
 					votes.iter().map(|l| T::Lookup::unlookup(l.clone())).collect(),
 				),
 				_ => Ok(()),

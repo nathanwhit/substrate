@@ -168,6 +168,10 @@ pub struct Peer<B: BlockT> {
 	pub known_blocks: LruHashSet<B::Hash>,
 	/// Notification sink.
 	sink: NotificationsSink,
+	/// Instant when the last notification was sent to peer.
+	last_notification_sent: Instant,
+	/// Instant when the last notification was received from peer.
+	last_notification_received: Instant,
 }
 
 pub struct SyncingEngine<B: BlockT, Client> {
@@ -584,6 +588,7 @@ where
 					data: Some(data.clone()),
 				};
 
+				peer.last_notification_sent = Instant::now();
 				peer.sink.send_sync_notification(message.encode());
 			}
 		}
@@ -614,6 +619,37 @@ where
 
 		while let Poll::Ready(()) = self.tick_timeout.poll_unpin(cx) {
 			self.report_metrics();
+
+			// go over all connected peers and check if any of them have been idle for a while. Idle
+			// in this case means that we haven't sent or received block announcements to/from this
+			// peer. If that is the case, because of #5685, it could be that the block announces
+			// substream is not actually open and and this peer is just wasting a slot and is should
+			// be replaced with some other node that is willing to send us block announcements.
+			for (id, peer) in self.peers.iter() {
+				// because of a delay between disconnecting a peer in `SyncingEngine` and getting
+				// the response back from `Protocol`, a peer might be reported and disconnect
+				// multiple times. To prevent this from happening (until the underlying issue is
+				// fixed), keep track of evicted peers and report and disconnect them only once.
+				if self.evicted.contains(id) {
+					continue
+				}
+
+				let last_received_late =
+					peer.last_notification_received.elapsed() > INACTIVITY_EVICT_THRESHOLD;
+				let last_sent_late =
+					peer.last_notification_sent.elapsed() > INACTIVITY_EVICT_THRESHOLD;
+
+				if last_received_late && last_sent_late {
+					log::debug!(target: "sync", "evict peer {id} since it has been idling for too long");
+					self.network_service.report_peer(*id, rep::INACTIVE_SUBSTREAM);
+					self.network_service
+						.disconnect_peer(*id, self.block_announce_protocol_name.clone());
+					self.evicted.insert(*id);
+				}
+			}
+
+			self.tick_timeout.reset(TICK_TIMEOUT);
+		}
 
 		while let Poll::Ready(Some(event)) = self.service_rx.poll_next_unpin(cx) {
 			match event {
@@ -715,6 +751,7 @@ where
 					},
 				},
 				sc_network::SyncEvent::NotificationStreamClosed { remote } => {
+					self.evicted.remove(&remote);
 					if self.on_sync_peer_disconnected(remote).is_err() {
 						log::trace!(
 							target: "sync",
@@ -867,6 +904,8 @@ where
 				NonZeroUsize::new(MAX_KNOWN_BLOCKS).expect("Constant is nonzero"),
 			),
 			sink,
+			last_notification_sent: Instant::now(),
+			last_notification_received: Instant::now(),
 		};
 
 		let req = if peer.info.roles.is_full() {

@@ -106,6 +106,23 @@ impl EpochChangeTrigger for SameAuthoritiesForever {
 
 const UNDER_CONSTRUCTION_SEGMENT_LENGTH: u32 = 256;
 
+#[derive(Default)]
+pub struct InitConfig {
+	pub authorities: Vec<(AuthorityId, BabeAuthorityWeight)>,
+	pub epoch_config: Option<BabeEpochConfiguration>,
+}
+
+#[cfg(feature = "std")]
+impl From<&pallet::GenesisConfig> for InitConfig {
+	fn from(genesis: &pallet::GenesisConfig) -> Self {
+		Self {
+			authorities: genesis.authorities.clone(),
+			epoch_config: genesis.epoch_config.clone(),
+		}
+	}
+}
+
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
@@ -325,11 +342,7 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T: Config> GenesisBuild<T> for GenesisConfig {
 		fn build(&self) {
-			SegmentIndex::<T>::put(0);
-			Pallet::<T>::initialize_genesis_authorities(&self.authorities);
-			EpochConfig::<T>::put(
-				self.epoch_config.clone().expect("epoch_config must not be None"),
-			);
+			Pallet::<T>::genesis_init(self.into())
 		}
 	}
 
@@ -887,6 +900,14 @@ impl<T: Config> Pallet<T> {
 		key_owner_proof: T::KeyOwnerProof,
 	) -> Option<()> {
 		T::EquivocationReportSystem::publish_evidence((equivocation_proof, key_owner_proof)).ok()
+	}
+
+	pub fn genesis_init(config: crate::InitConfig) {
+		SegmentIndex::<T>::put(0);
+		Pallet::<T>::initialize_genesis_authorities(&config.authorities);
+		EpochConfig::<T>::put(
+			config.epoch_config.clone().expect("epoch_config must not be None"),
+		);
 	}
 }
 
